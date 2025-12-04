@@ -22,6 +22,7 @@
 #include <deal.II/grid/grid_generator.h>
 // Output of grids in various graphics formats:
 #include <deal.II/grid/grid_out.h>
+#include <deal.II/grid/manifold_lib.h>
 
 // This is needed for C++ output:
 #include <iostream>
@@ -38,51 +39,144 @@
 // namespace for general use:
 using namespace dealii;
 
-// @sect3{Creating the first mesh}
-
-// In the following, first function, we simply use the unit square as domain
-// and produce a globally refined grid from it.
-void first_grid()
-{
-  Triangulation<2> triangulation;
-  const Point<2> center(1, 0);
-  const double radius = 1.0;
-  GridGenerator::hyper_ball_balanced(triangulation, center, radius);
-  for (unsigned int step = 0; step < 5; ++step)
-    {
-        std::string grid_name = "grid-1_" + std::to_string(step) + ".svg";
-        std::ofstream out(grid_name);
-        GridOut       grid_out;
-        grid_out.write_svg(triangulation, out);
-        triangulation.refine_global();
-    }
-
-  // Now we want to write a graphical representation of the mesh to an output
-  // file. The GridOut class of deal.II can do that in a number of different
-  // output formats; here, we choose scalable vector graphics (SVG) format
-  // that you can visualize using the web browser of your choice:
-  std::ofstream out("grid-1.svg");
-  GridOut       grid_out;
-  grid_out.write_svg(triangulation, out);
-  std::cout << "Grid written to grid-1.svg" << std::endl;
-}
-
-
-
 // @sect3{Creating the second mesh}
 
-// The grid in the following, second function is slightly more complicated in
-// that we use a ring domain and refine the result once globally.
-void second_grid()
+// triangle meshs, not used anymore
+// void triangle_grid()
+// {
+//   Triangulation<2> triangulation_quad;
+//   Triangulation<2> triangulation;
+//   const Point<2> center(0, 0);
+//   const double radius = 1.0;
+//   GridGenerator::hyper_ball_balanced(triangulation_quad);
+//   GridGenerator::convert_hypercube_to_simplex_mesh(triangulation_quad, triangulation);
+//   for (const auto i : triangulation_quad.get_manifold_ids())
+//     {
+//       if (i != numbers::flat_manifold_id)
+//       {
+//         triangulation.set_manifold(i, triangulation_quad.get_manifold(i));
+//       }
+//     }
+//   const int refine_steps = 5;
+//   for (unsigned int step = 0; step < refine_steps; ++step)
+//     {
+//       std::string grid_name = "grid-tri_" + std::to_string(step) + ".svg";
+//       std::ofstream out(grid_name);
+//       GridOut       grid_out;
+//       grid_out.write_svg(triangulation, out);
+
+//       const double dist_to_border = radius / pow(2.0, step);
+//       for (const auto &cell : triangulation.active_cell_iterators())
+//         {
+//           for (const auto v : cell->vertex_indices())
+//             {
+//               const double distance_from_center =
+//                 center.distance(cell->vertex(v));
+//               if (std::fabs(distance_from_center - radius) <=
+//                   (1e-6 + 1) * dist_to_border)
+//                 {
+//                   cell->set_refine_flag();
+//                   break;
+//                 }
+//             }
+//         }
+//       triangulation.execute_coarsening_and_refinement();
+//     }
+//   std::ofstream out("grid-tri.svg");
+//   GridOut       grid_out;
+//   grid_out.write_svg(triangulation, out);
+
+//   std::cout << "Grid written to grid-tri.svg" << std::endl;
+// }
+
+// void triangle_interp_grid()
+// {
+//   Triangulation<2> triangulation_quad;
+//   Triangulation<2> triangulation;
+//   SphericalManifold<2> spherical_manifold;
+//   TransfiniteInterpolationManifold<2> inner_manifold;
+//   const Point<2> center(0, 0);
+//   const double radius = 1.0;
+//   GridGenerator::hyper_ball(triangulation_quad);
+  
+//   triangulation_quad.set_all_manifold_ids(1);
+//   triangulation_quad.set_all_manifold_ids_on_boundary(0);
+//   triangulation_quad.set_manifold(0, spherical_manifold);
+//   inner_manifold.initialize(triangulation_quad);
+//   triangulation_quad.set_manifold(1, inner_manifold);
+//   GridGenerator::convert_hypercube_to_simplex_mesh(triangulation_quad, triangulation);
+//   // // triangulation.set_all_manifold_ids(1);
+//   // triangulation.set_all_manifold_ids_on_boundary(0);
+//   triangulation.set_manifold(0, spherical_manifold);
+//   // // inner_manifold.initialize(triangulation);
+//   // triangulation.set_manifold(1, inner_manifold);
+//   inner_manifold.initialize(triangulation);
+//   triangulation.set_manifold (1, inner_manifold);
+//   triangulation.refine_global(1);
+//   // initialize the transfinite manifold again
+//   inner_manifold.initialize(triangulation);
+//   triangulation.refine_global(4);
+//   // for (const auto i : triangulation_quad.get_manifold_ids())
+//   //   {
+//   //     if (i != numbers::flat_manifold_id)
+//   //     {
+//   //       triangulation.set_manifold(i, triangulation_quad.get_manifold(i));
+//   //     }
+//   //   }
+//   // const int refine_steps = 5;
+//   // triangulation.refine_global(refine_steps);
+//   // for (unsigned int step = 0; step < refine_steps; ++step)
+//   //   {
+//   //     std::string grid_name = "grid-tri-interp_" + std::to_string(step) + ".svg";
+//   //     std::ofstream out(grid_name);
+//   //     GridOut       grid_out;
+//   //     grid_out.write_svg(triangulation, out);
+//   //     const double dist_to_border = radius / pow(2.0, step);
+//   //     for (const auto &cell : triangulation.active_cell_iterators())
+//   //       {
+//   //         cell->set_refine_flag();
+//   //         for (const auto v : cell->vertex_indices())
+//   //           {
+//   //             const double distance_from_center =
+//   //               center.distance(cell->vertex(v));
+//   //             if (std::fabs(distance_from_center - radius) <=
+//   //                 (1e-6 + 1) * dist_to_border)
+//   //               {
+//   //                 cell->set_refine_flag();
+//   //                 break;
+//   //               }
+//   //           }
+//   //       }
+//   //     triangulation.execute_coarsening_and_refinement();
+//   //   }
+//   std::ofstream out("grid-tri-interp.svg");
+//   GridOut       grid_out;
+//   grid_out.write_svg(triangulation, out);
+
+//   std::cout << "Grid written to grid-tri-interp.svg" << std::endl;
+// }
+
+void square_grid(bool balanced)
 {
   Triangulation<2> triangulation;
-  const Point<2> center(1, 0);
+  const Point<2> center(0, 0);
   const double radius = 1.0;
-  GridGenerator::hyper_ball_balanced(triangulation, center, radius);
+  std::string balanced_name = "";
+  if (balanced)
+  {
+    GridGenerator::hyper_ball_balanced(triangulation, center, radius);
+    balanced_name = "grid-sqr-bal_";
+  }
+  else
+  {
+    GridGenerator::hyper_ball(triangulation, center, radius);
+    balanced_name = "grid-sqr_";
+  }
   const int refine_steps = 5;
+
   for (unsigned int step = 0; step < refine_steps; ++step)
     {
-      std::string grid_name = "grid-2_" + std::to_string(step) + ".svg";
+      std::string grid_name = balanced_name + std::to_string(step) + ".svg";
       std::ofstream out(grid_name);
       GridOut       grid_out;
       grid_out.write_svg(triangulation, out);
@@ -102,34 +196,72 @@ void second_grid()
                 }
             }
         }
-
-      // Now that we have marked all the cells that we want refined, we let
-      // the triangulation actually do this refinement. The function that does
-      // so owes its long name to the fact that one can also mark cells for
-      // coarsening, and the function does coarsening and refinement all at
-      // once:
       triangulation.execute_coarsening_and_refinement();
     }
-
-
-  // Finally, after these five iterations of refinement, we want to again
-  // write the resulting mesh to a file, again in SVG format. This works just
-  // as above:
-  std::ofstream out("grid-2.svg");
+  std::ofstream out(balanced_name + ".svg");
   GridOut       grid_out;
   grid_out.write_svg(triangulation, out);
-
-  std::cout << "Grid written to grid-2.svg" << std::endl;
 }
 
+void square_interp_grid(bool balanced)
+{
+  Triangulation<2> triangulation;
+  SphericalManifold<2> spherical_manifold;
+  TransfiniteInterpolationManifold<2> inner_manifold;
+  const Point<2> center(0, 0);
+  const double radius = 1.0;
+  std::string balanced_name = "";
+  if (balanced)
+  {
+    GridGenerator::hyper_ball_balanced(triangulation, center, radius);
+    balanced_name = "grid-sqr-interp-bal_";
+  }
+  else
+  {
+    GridGenerator::hyper_ball(triangulation, center, radius);
+    balanced_name = "grid-sqr-interp_";
+  }
+  triangulation.set_all_manifold_ids(1);
+  triangulation.set_all_manifold_ids_on_boundary(0);
+  triangulation.set_manifold(0, spherical_manifold);
+  inner_manifold.initialize(triangulation);
+  triangulation.set_manifold(1, inner_manifold);
+  const int refine_steps = 5;
+  for (unsigned int step = 0; step < refine_steps; ++step)
+    {
+      std::string grid_name = balanced_name + std::to_string(step) + ".svg";
+      std::ofstream out(grid_name);
+      GridOut       grid_out;
+      grid_out.write_svg(triangulation, out);
 
+      const double dist_to_border = radius / pow(2.0, step);
+      for (const auto &cell : triangulation.active_cell_iterators())
+        {
+          for (const auto v : cell->vertex_indices())
+            {
+              const double distance_from_center =
+                center.distance(cell->vertex(v));
+              if (std::fabs(distance_from_center - radius) <=
+                  (1e-6 + 1) * dist_to_border)
+                {
+                  cell->set_refine_flag();
+                  break;
+                }
+            }
+        }
+      triangulation.execute_coarsening_and_refinement();
+    }
+  std::ofstream out(balanced_name + ".svg");
+  GridOut       grid_out;
+  grid_out.write_svg(triangulation, out);
+}
 
-// @sect3{The main function}
-
-// Finally, the main function. There isn't much to do here, only to call the
-// two subfunctions, which produce the two grids.
 int main()
 {
-  first_grid();
-  second_grid();
+  // triangle_interp_grid();
+  // triangle_grid();
+  square_interp_grid(true);
+  square_interp_grid(false);
+  square_grid(true);
+  square_grid(false);
 }
