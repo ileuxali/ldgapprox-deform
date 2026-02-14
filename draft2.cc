@@ -42,7 +42,7 @@ namespace Draft2
                        const double tau,
                        const double mu,
                        const double lambda,
-                       Tensor<2, dim> g_inv_sqrt,
+                       double g_inv_sqrt[3],
                        const double       penalty_jump_grad,
                        const double       penalty_jump_val);
 
@@ -89,10 +89,13 @@ namespace Draft2
     SparsityPattern      energy_sparsity_pattern;
     SparsityPattern      control_sparsity_pattern;
     SparsityPattern      b_sparsity_pattern;
+    SparsityPattern      b_sparsity_pattern_transpose;
     // BlockMatrix<double> solver matrix;
     SparseMatrix<double> energy_matrix;
     SparseMatrix<double> control_matrix;
+    SparseMatrix<double> a_matrix;
     SparseMatrix<double> b_matrix;
+    SparseMatrix<double> b_matrix_transpose;
     Vector<double>       rhs;
     Vector<double>       solution;
 
@@ -100,7 +103,7 @@ namespace Draft2
     const double tau;
     const double mu;
     const double lambda;
-    Tensor<2, dim> g_inv_sqrt;
+    Vector<double> g_inv_sqrt_values;
     // Finally, the last two variables correspond to the penalty coefficients
     // $\gamma_1$ and $\gamma_0$ for the jump of $\nabla_hu_h$ and $u_h$,
     // respectively.
@@ -340,22 +343,26 @@ namespace Draft2
                                               const double tau,
                                               const double mu,
                                               const double lambda,
-                                              Tensor<2, dim> g_inv_sqrt,
+                                              double g_inv_sqrt_values[3],
                                               const double penalty_jump_grad,
                                               const double penalty_jump_val)
     : n_refinements(n_refinements)
     , fe(FE_DGQ<dim>(fe_degree)^3)
+    , fe_metriccon(FE_DGQ<dim>(0)^((dim*(dim+1))/2))
     , dof_handler(triangulation)
     , metric_dof_handler(triangulation)
     , fe_lift(FE_DGQ<dim>(fe_degree)^(dim * dim))
-    , fe_metriccon(FE_DGQ<dim>(0)^((dim*(dim+1))/2))
     , tau(tau)
     , mu(mu)
     , lambda(lambda)
-    , g_inv_sqrt(g_inv_sqrt)
+    , g_inv_sqrt_values(3)
     , penalty_jump_grad(penalty_jump_grad)
     , penalty_jump_val(penalty_jump_val)
-  {}
+  {
+    g_inv_sqrt_values[0] = g_inv_sqrt_values[0];
+    g_inv_sqrt_values[1] = g_inv_sqrt_values[1];
+    g_inv_sqrt_values[2] = g_inv_sqrt_values[2];
+  }
 
 
 
@@ -405,6 +412,7 @@ namespace Draft2
     DynamicSparsityPattern energy_dsp(dof_handler.n_dofs(), dof_handler.n_dofs());
     DynamicSparsityPattern control_dsp(dof_handler.n_dofs(), dof_handler.n_dofs());
     DynamicSparsityPattern b_dsp(dof_handler.n_dofs(), metric_dof_handler.n_dofs());
+    DynamicSparsityPattern b_dsp_transpose(metric_dof_handler.n_dofs(), dof_handler.n_dofs());
 
     const auto dofs_per_cell = fe.dofs_per_cell;
     const auto metric_dofs_per_cell = fe_metriccon.dofs_per_cell;
@@ -412,11 +420,11 @@ namespace Draft2
       {
         std::vector<types::global_dof_index> dofs(dofs_per_cell);
         std::vector<types::global_dof_index> metric_dofs(metric_dofs_per_cell);
-        HandlerChangeDoFAccessor changeable_cell;
-        changeable_cell->copy_from(cell);
-        changeable_cell->get_dof_indices(dofs);
-        changeable_cell->change_dof_handler(*metric_dof_handler);
-        changeable_cell->get_dof_indices(metric_dofs);
+        HandlerChangeDoFAccessor<dim, dim, dim, false> changeable_cell;
+        changeable_cell.copy_from(*cell);
+        changeable_cell.get_dof_indices(dofs);
+        changeable_cell.change_dof_handler(&metric_dof_handler);
+        changeable_cell.get_dof_indices(metric_dofs);
         for (const auto i : dofs)
         {
           for (const auto j : dofs)
@@ -427,6 +435,7 @@ namespace Draft2
           for (const auto j : metric_dofs)
             {
               b_dsp.add(i, j);
+              b_dsp_transpose.add(j, i);
             }
         }
         for (unsigned int f = 0; f < cell->n_faces(); ++f)
@@ -451,10 +460,13 @@ namespace Draft2
     energy_sparsity_pattern.copy_from(energy_dsp);
     control_sparsity_pattern.copy_from(control_dsp);
     b_sparsity_pattern.copy_from(b_dsp);
+    b_sparsity_pattern_transpose.copy_from(b_dsp_transpose);
 
     energy_matrix.reinit(energy_sparsity_pattern);
     control_matrix.reinit(control_sparsity_pattern);
+    a_matrix.reinit(energy_sparsity_pattern);
     b_matrix.reinit(b_sparsity_pattern);
+    b_matrix_transpose.reinit(b_sparsity_pattern_transpose);
     rhs.reinit(dof_handler.n_dofs());
     solution.reinit(dof_handler.n_dofs());
 
@@ -494,6 +506,7 @@ namespace Draft2
   {
     energy_matrix = 0;
     control_matrix = 0;
+    a_matrix = 0;
 
     const QGauss<dim>     quad(fe.degree + 1);
     const QGauss<dim - 1> quad_face(fe.degree + 1);
@@ -548,6 +561,9 @@ namespace Draft2
     std::vector<std::vector<std::vector<Tensor<2, dim>>>>
       discrete_hessians_neigh(GeometryInfo<dim>::faces_per_cell,
                               discrete_hessians);
+    
+    Tensor <2, 2> g_inv_sqrt = Tensor<2, 2>({{g_inv_sqrt_values[0], g_inv_sqrt_values[1]}, 
+                                                      {g_inv_sqrt_values[1], g_inv_sqrt_values[2]}});
     for (const auto &cell : dof_handler.active_cell_iterators())
     {
       fe_values.reinit(cell);
@@ -580,15 +596,12 @@ namespace Draft2
                                               (mu * lambda / (12 * mu + 6 * lambda)) * 
                                               scalar_product(g_inv_sqrt, H_j * g_inv_sqrt) * 
                                               scalar_product(g_inv_sqrt, H_i * g_inv_sqrt) * dx;
-                // added H2 norm might need to be outside
+                // added H2 norm to control matrix
                 stiffness_matrix_control(i, j) += (1 / tau) * (fe_values.shape_value(i, q) * fe_values.shape_value(j, q) +
                                               scalar_product(fe_values.shape_grad(i, q), fe_values.shape_grad(j, q)) +
                                               scalar_product(fe_values.shape_hessian(i, q), fe_values.shape_hessian(j, q))) * dx;                              
               }
         }
-        // A_tilde_matrix = firstpart
-        // Control_matrix = just second part
-        // A_matrix = control + atilde
 
       for (unsigned int i = 0; i < n_dofs; ++i)
         for (unsigned int j = 0; j < n_dofs; ++j)
@@ -597,6 +610,10 @@ namespace Draft2
               stiffness_matrix_cc(i, j);
             control_matrix(local_dof_indices[i], local_dof_indices[j]) +=
               stiffness_matrix_control(i, j);
+            a_matrix(local_dof_indices[i], local_dof_indices[j]) +=
+              stiffness_matrix_cc(i, j);
+            a_matrix(local_dof_indices[i], local_dof_indices[j]) +=
+              stiffness_matrix_control(i, j); 
           }
 
       // Next, we compute and add the interactions of the degrees of freedom
@@ -669,6 +686,15 @@ namespace Draft2
                               local_dof_indices[j]) +=
                         stiffness_matrix_nc(i, j);
                       energy_matrix(local_dof_indices_neighbor[i],
+                              local_dof_indices_neighbor[j]) +=
+                        stiffness_matrix_nn(i, j);
+                      a_matrix(local_dof_indices[i],
+                              local_dof_indices_neighbor[j]) +=
+                        stiffness_matrix_cn(i, j);
+                      a_matrix(local_dof_indices_neighbor[i],
+                              local_dof_indices[j]) +=
+                        stiffness_matrix_nc(i, j);
+                      a_matrix(local_dof_indices_neighbor[i],
                               local_dof_indices_neighbor[j]) +=
                         stiffness_matrix_nn(i, j);
                     }
@@ -752,6 +778,12 @@ namespace Draft2
                                     local_dof_indices_neighbor_2[j]) +=
                               stiffness_matrix_n1n2(i, j);
                             energy_matrix(local_dof_indices_neighbor_2[i],
+                                    local_dof_indices_neighbor[j]) +=
+                              stiffness_matrix_n2n1(i, j);
+                            a_matrix(local_dof_indices_neighbor[i],
+                                    local_dof_indices_neighbor_2[j]) +=
+                              stiffness_matrix_n1n2(i, j);
+                            a_matrix(local_dof_indices_neighbor_2[i],
                                     local_dof_indices_neighbor[j]) +=
                               stiffness_matrix_n2n1(i, j);
                           }
@@ -871,6 +903,8 @@ namespace Draft2
                 {
                   energy_matrix(local_dof_indices[i], local_dof_indices[j]) +=
                     ip_matrix_cc(i, j);
+                  a_matrix(local_dof_indices[i], local_dof_indices[j]) +=
+                    ip_matrix_cc(i, j);
                 }
             }
 
@@ -888,6 +922,14 @@ namespace Draft2
                       energy_matrix(local_dof_indices_neighbor[i],
                               local_dof_indices_neighbor[j]) +=
                         ip_matrix_nn(i, j);
+                      a_matrix(local_dof_indices[i],
+                              local_dof_indices_neighbor[j]) +=
+                        ip_matrix_cn(i, j);
+                      a_matrix(local_dof_indices_neighbor[i],
+                              local_dof_indices[j]) += ip_matrix_nc(i, j);
+                      a_matrix(local_dof_indices_neighbor[i],
+                              local_dof_indices_neighbor[j]) +=
+                        ip_matrix_nn(i, j);
                     }
                 }
             }
@@ -898,90 +940,73 @@ namespace Draft2
 
   template <int dim>
   void BiLaplacianLDGLift<dim>::assemble_bmatrix()
-  {}
-  // {
-  //   b_matrix = 0
-  //   const QGauss<dim> quad(fe.degree + 1);
-  //   const QGauss<dim> metric_quad(fe_metriccon.degree + 1);
+  {
+    b_matrix = 0;
+    const QGauss<dim> quad(fe.degree + 1);
+    const QGauss<dim> metric_quad(fe_metriccon.degree + 1);
+    // both quad for each fe spaces should have same amount of quad points
+    const unsigned int n_q_points = quad.size();
 
-  //   const unsigned int n_q_points = quad.size();
-  //   const unsigned int metric_n_q_points = metric_quad.size();
+    FEValues<dim> fe_values(fe, quad, update_hessians | update_JxW_values);
 
-  //   FEValues<dim> fe_values(fe, quad, update_hessians | update_JxW_values);
+    FEValues<dim> fe_values_metric(
+      fe_metriccon, metric_quad, update_values | update_gradients | update_normal_vectors);
 
-  //   FEFaceValues<dim> fe_values_metric(
-  //     fe_metriccon, metric_quad, update_values | update_gradients | update_normal_vectors);
+    const unsigned int n_dofs = fe_values.dofs_per_cell;
+    const unsigned int n_metric_dofs = fe_values_metric.dofs_per_cell;
 
-  //   const unsigned int n_dofs = fe_values.dofs_per_cell;
-  //   const unsigned int n_metric_dofs = fe_values_metric.dofs_per_cell;
+    std::vector<types::global_dof_index> local_dof_indices(n_dofs);
+    std::vector<types::global_dof_index> local_dof_indices_metric(n_metric_dofs);
 
-  //   std::vector<types::global_dof_index> local_dof_indices(n_dofs);
-  //   std::vector<types::global_dof_index> local_dof_indices_metric(n_metric_dofs);
+    FullMatrix<double> stiffness_matrix(n_dofs, n_metric_dofs); 
+    for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      HandlerChangeDoFAccessor<dim, dim, dim, false> changeable_cell;
+      changeable_cell.copy_from(*cell);
+      changeable_cell.get_dof_indices(local_dof_indices);
+      changeable_cell.change_dof_handler(&metric_dof_handler);
+      changeable_cell.get_dof_indices(local_dof_indices_metric);
 
-  //   FullMatrix<double> stiffness_matrix(n_dofs, n_metric_dofs); 
+      const typename Triangulation<dim>::cell_iterator cell_metric =
+        static_cast<typename Triangulation<dim>::cell_iterator>(cell);
+        
+      fe_values.reinit(cell);
+      
+      fe_values_metric.reinit(cell_metric);
+      stiffness_matrix = 0;
+      
+      for (unsigned int q = 0; q < n_q_points; ++q)
+        {
+          const double dx = fe_values.JxW(q);
+          Tensor <1, dim> cell_solution;
+          for (unsigned int i = 0; i < n_dofs; ++i)
+            {
+            cell_solution += solution(local_dof_indices[i]) * fe_values.shape_grad(i, q);
+            }
+          for (unsigned int i = 0; i < n_dofs; ++i)
+            {
+            Tensor <1, dim> basis = fe_values.shape_grad(i, q);
+            for (unsigned int j = 0; j < n_metric_dofs; ++j)
+              {
+                Tensor <dim, dim> metric_basis = Tensor<dim, dim>({{fe_values_metric.shape_value(0, q), fe_values_metric.shape_value(1, q)}, 
+                                                                          {fe_values_metric.shape_value(1, q), fe_values_metric.shape_value(2,q)}});
 
-  //   for (const auto &cell : dof_handler.active_cell_iterators())
-  //   {
-  //     fe_values.reinit(cell);
-  //     cell->get_dof_indices(local_dof_indices);
+                stiffness_matrix(i, j) += scalar_product(metric_basis,
+                              outer_product(cell_solution, basis) + outer_product(basis, cell_solution)) * dx;
+              }
+            }
+        }
 
-  //     // We now compute all the discrete Hessians that are not vanishing
-  //     // on the current cell, i.e., the discrete Hessian of all the basis
-  //     // functions with support on the current cell or on one of its
-  //     // neighbors.
-  //     compute_discrete_hessians(cell,
-  //                               discrete_hessians,
-  //                               discrete_hessians_neigh);
-
-  //     // First, we compute and add the interactions of the degrees of freedom
-  //     // of the current cell.
-  //     stiffness_matrix_cc = 0;
-  //     for (unsigned int q = 0; q < n_q_points; ++q)
-  //       {
-  //         const double dx = fe_values.JxW(q);
-
-  //         for (unsigned int i = 0; i < n_dofs; ++i)
-  //           for (unsigned int j = 0; j < n_dofs; ++j)
-  //             {
-  //               const Tensor<2, dim> &H_i = discrete_hessians[i][q];
-  //               const Tensor<2, dim> &H_j = discrete_hessians[j][q];
-  //               // A_tilde
-  //               stiffness_matrix_cc(i, j) += (mu / 6) * scalar_product(g_inv_sqrt * H_j * g_inv_sqrt,
-  //                                             g_inv_sqrt * H_i * g_inv_sqrt) * dx +
-  //                                             (mu * lambda / (12 * mu + 6 * lambda)) * 
-  //                                             scalar_product(g_inv_sqrt, H_j * g_inv_sqrt) * 
-  //                                             scalar_product(g_inv_sqrt, H_i * g_inv_sqrt) * dx;
-  //               // added H2 norm
-  //               stiffness_matrix_cc(i, j) += (1 / tau) * (fe_values.shape_value(i, q) * fe_values.shape_value(j, q) +
-  //                                             scalar_product(fe_values.shape_grad(i, q), fe_values.shape_grad(j, q)) +
-  //                                             scalar_product(fe_values.shape_hessian(i, q), fe_values.shape_hessian(j, q))) * dx;                              
-  //             }
-  //       }
-
-  //     for (unsigned int i = 0; i < n_dofs; ++i)
-  //       for (unsigned int j = 0; j < n_dofs; ++j)
-  //         {
-  //           matrix(local_dof_indices[i], local_dof_indices[j]) +=
-  //             stiffness_matrix_cc(i, j);
-  //         }
-  //   for (unsigned int q = 0; q < n_q_points; ++q)
-  //         {
-  //           discrete_hessians[i][q] += fe_values.shape_hessian(i, q);
-
-  //           for (unsigned int m = 0; m < n_dofs; ++m)
-  //             {
-  //               discrete_hessians[i][q] -=
-  //                 solution[m] * fe_values_lift[tau_ext].value(m, q);
-  //             }
-
-  //           for (unsigned int m = 0; m < n_dofs_lift; ++m)
-  //             {
-  //               discrete_hessians[i][q] +=
-  //                 coeffs_be[m] * fe_values_lift[tau_ext].value(m, q);
-  //             }
-  //         }
-  //   }
-  // }
+      for (unsigned int i = 0; i < n_dofs; ++i)
+        for (unsigned int j = 0; j < n_metric_dofs; ++j)
+          {
+            b_matrix(local_dof_indices[i], local_dof_indices_metric[j]) +=
+              stiffness_matrix(i, j);
+            b_matrix_transpose(local_dof_indices_metric[j], local_dof_indices[i]) +=
+              stiffness_matrix(i, j);
+          }
+    }
+  }
 
 
   // @sect4{BiLaplacianLDGLift::assemble_rhs}
@@ -1033,7 +1058,7 @@ namespace Draft2
       // -= A_tildeYn
       Vector<double> temp;
       energy_matrix.vmult(temp, solution);
-      solution -= temp;
+      rhs -= temp;
   }
 
 
@@ -1047,15 +1072,49 @@ namespace Draft2
   template <int dim>
   void BiLaplacianLDGLift<dim>::solve()
   {
-    // Vector<double> temp(something);
-    // // systemmatrix.block(0,0) = matrix systemmatrix.block(0,1) = bmatrix 
-    // systemrhs(0) = rhs systemrhs(1) = 0
+    double tol = 0.1 * tau;
 
-    SparseDirectUMFPACK A_direct;
-    A_direct.initialize(energy_matrix);
-    // while tau > abs()
-    // A_direct.vmult(temp, rhs);
-    // solution += temp;
+    BlockSparsityPattern solver_sp(2, 2);
+    solver_sp.add(0,0);
+    solver_sp.add(0,1);
+    solver_sp.add(1,0);
+    solver_sp.block(0, 0) = energy_sparsity_pattern;
+    solver_sp.block(0, 1) = b_sparsity_pattern_transpose;
+    solver_sp.block(1, 0) = b_sparsity_pattern;
+    solver_sp.collect_sizes();
+
+    BlockSparseMatrix<double> solver_matrix(solver_sp);
+    solver_matrix.block(0, 0) = a_matrix;
+    
+    std::vector<unsigned int> block_vector_size = {dof_handler.n_dofs(), metric_dof_handler.n_dofs()};
+    BlockVector<double> blocked_solution;
+    BlockVector<double> blocked_rhs;
+    blocked_solution.reinit(block_vector_size, false);
+    blocked_rhs.reinit(block_vector_size, false);
+
+    Vector<double> update(solution);
+    Vector<double> old_solution(solution);
+    Vector<double> temp(solution);
+    energy_matrix.vmult(temp, solution);
+    double solution_energy = solution * temp;
+    double old_solution_energy = 0;
+    update = 0;
+
+    do 
+    {
+      old_solution += update;
+      old_solution_energy = solution_energy;
+      assemble_rhs();
+      assemble_bmatrix();
+      solver_matrix.block(0, 1) = b_matrix_transpose;
+      solver_matrix.block(1, 0) = b_matrix;
+      blocked_rhs.block(0) = rhs;
+      solver_matrix.vmult(blocked_solution, blocked_rhs);
+      update = blocked_solution.block(0);
+      solution += update;
+      energy_matrix.vmult(temp, solution);
+      solution_energy = solution * temp;
+    } while (tol > abs(solution_energy - old_solution_energy));
   }
 
 
@@ -1638,9 +1697,8 @@ int main()
       
       const double mu = 1.0;
       const double lambda = 1.0;
-      Tensor<2, 2> g_inv_sqrt;
-      g_inv_sqrt[0, 0] = 1.0;
-      g_inv_sqrt[1, 1] = 1.0;
+      const double tau = 1.0;
+      double g_inv_sqrt_values[3] = {1.0, 0.0, 1.0};
       const double penalty_grad =
         1.0; // penalty coefficient for the jump of the gradients
       const double penalty_val =
@@ -1648,9 +1706,10 @@ int main()
 
       Draft2::BiLaplacianLDGLift<2> problem(n_ref,
                                             degree,
+                                            tau,
                                             mu,
                                             lambda,
-                                            g_inv_sqrt,
+                                            g_inv_sqrt_values,
                                             penalty_grad,
                                             penalty_val);
 
