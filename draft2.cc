@@ -71,7 +71,8 @@ namespace Draft2
     void assemble_system();
     void assemble_matrix();
     void assemble_bmatrix();
-    void assemble_rhs(const RightHandSide<dim> right_hand_side);
+    void assemble_rhs(const RightHandSide<dim> &right_hand_side);
+    void unsafe_copy(SparsityPattern &sp, SparseMatrix<double> &to, SparseMatrix<double> &from);
 
     void solve(int test_num);
 
@@ -1114,7 +1115,7 @@ namespace Draft2
   // form using the Nitsche approach, it only involves the contribution of the
   // forcing term $\int_{\Omega}fv_h$.
   template <int dim>
-  void BiLaplacianLDGLift<dim>::assemble_rhs(const RightHandSide<dim> right_hand_side)
+  void BiLaplacianLDGLift<dim>::assemble_rhs(const RightHandSide<dim> &right_hand_side)
   {
     rhs = 0;
 
@@ -1158,6 +1159,19 @@ namespace Draft2
   }
 
 
+  template <int dim>
+  void BiLaplacianLDGLift<dim>::unsafe_copy(SparsityPattern &sp, SparseMatrix<double> &to, SparseMatrix<double> &from)
+  {
+    cout << "start copy";
+    for (auto it = sp.begin(); it != sp.end(); ++it)
+    {
+      int i = it->row();
+      int j = it->column();
+      to(i, j) = from(i, j);
+    }
+    cout << "finish copy";
+  }
+
 
   // @sect4{BiLaplacianLDGLift::solve}
 
@@ -1171,30 +1185,28 @@ namespace Draft2
     double tol = 0.1 * tau;
 
     BlockSparsityPattern solver_sp(2, 2);
-    cout << "solver sp (" << solver_sp.n_rows() << ", " << solver_sp.n_cols() <<")\n";
-    cout << "solver sp [" << solver_sp.n_block_rows() << ", " << solver_sp.n_block_cols() <<"]\n";
-    // solver_sp.add(0,0);
-    // solver_sp.add(0,1);
-    // solver_sp.add(1,0);
-    cout << "a matrix (" << a_matrix.m() << ", " << a_matrix.n() <<")\n";
-    cout << "b matrix (" << b_matrix.m() << ", " << b_matrix.n() << ")\n";
-    cout << "b transpose matrix (" << b_matrix_transpose.m() << ", " << b_matrix_transpose.n() << ")\n";
-    cout << "energy sp (" << energy_sparsity_pattern.n_rows() << ", " << energy_sparsity_pattern.n_cols() <<")\n";
-    cout << "b sp (" << b_sparsity_pattern.n_rows() << ", " << b_sparsity_pattern.n_cols() << ")\n";
-    cout << "b transpose sp (" << b_sparsity_pattern_transpose.n_rows() << ", " << b_sparsity_pattern_transpose.n_cols() << ")\n";
     solver_sp.block(0, 0).copy_from(energy_sparsity_pattern);
-    cout << "block 00 sp (" << solver_sp.block(0, 0).n_rows() << ", " << solver_sp.block(0, 0).n_cols() << ")\n";
-    cout << "solver sp (" << solver_sp.n_rows() << ", " << solver_sp.n_cols() <<")\n";
-    cout << "solver sp [" << solver_sp.n_block_rows() << ", " << solver_sp.n_block_cols() <<"]\n";
     solver_sp.block(0, 1).copy_from(b_sparsity_pattern);
     solver_sp.block(1, 0).copy_from(b_sparsity_pattern_transpose);
     SparsityPattern zero_sp(b_matrix.n(), b_matrix.n(), 0);
     solver_sp.block(1, 1).copy_from(zero_sp);
     solver_sp.collect_sizes();
-    exit(1);
 
     BlockSparseMatrix<double> solver_matrix(solver_sp);
-    solver_matrix.block(0, 0) = a_matrix;
+    // cout << "blocks [" << solver_matrix.n_block_rows() << solver_matrix.n_block_cols();
+    // cout << "rows [" << solver_matrix.m() << solver_matrix.n();
+    cout << " 0 0 (" << solver_matrix.block(0,0).m() << " " << solver_matrix.block(0,0).n() << ")\n";
+    // cout << "start copy";
+    // for (auto it = energy_sparsity_pattern.begin(); it != energy_sparsity_pattern.end(); ++it)
+    // {
+    //   int i = it->row();
+    //   int j = it->column();
+    //   solver_matrix.block(0, 0)(i, j) = a_matrix(i, j);
+    // }
+    // cout << "finish copy";
+    // exit(0);
+    unsafe_copy(energy_sparsity_pattern, solver_matrix.block(0, 0), a_matrix);
+    exit(0);
     
     std::vector<unsigned int> block_vector_size = {dof_handler.n_dofs(), metric_dof_handler.n_dofs()};
     BlockVector<double> blocked_solution;
@@ -1223,9 +1235,10 @@ namespace Draft2
       old_solution_energy = solution_energy;
       assemble_rhs(right_hand_side);
       assemble_bmatrix();
-      solver_matrix.block(0, 1) = b_matrix_transpose;
-      solver_matrix.block(1, 0) = b_matrix;
+      solver_matrix.block(0, 1).copy_from(b_matrix);
+      solver_matrix.block(1, 0).copy_from(b_matrix_transpose);
       blocked_rhs.block(0) = rhs;
+      exit(0);
       solver_matrix.vmult(blocked_solution, blocked_rhs);
       update = blocked_solution.block(0);
       solution += update;
