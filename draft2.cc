@@ -563,6 +563,7 @@ namespace Draft2
     energy_matrix.reinit(energy_sparsity_pattern);
     control_matrix.reinit(control_sparsity_pattern);
     a_matrix.reinit(energy_sparsity_pattern);
+
     b_matrix.reinit(b_sparsity_pattern);
     b_matrix_transpose.reinit(b_sparsity_pattern_transpose);
     rhs.reinit(dof_handler.n_dofs());
@@ -1170,13 +1171,27 @@ namespace Draft2
     double tol = 0.1 * tau;
 
     BlockSparsityPattern solver_sp(2, 2);
+    cout << "solver sp (" << solver_sp.n_rows() << ", " << solver_sp.n_cols() <<")\n";
+    cout << "solver sp [" << solver_sp.n_block_rows() << ", " << solver_sp.n_block_cols() <<"]\n";
     // solver_sp.add(0,0);
     // solver_sp.add(0,1);
     // solver_sp.add(1,0);
+    cout << "a matrix (" << a_matrix.m() << ", " << a_matrix.n() <<")\n";
+    cout << "b matrix (" << b_matrix.m() << ", " << b_matrix.n() << ")\n";
+    cout << "b transpose matrix (" << b_matrix_transpose.m() << ", " << b_matrix_transpose.n() << ")\n";
+    cout << "energy sp (" << energy_sparsity_pattern.n_rows() << ", " << energy_sparsity_pattern.n_cols() <<")\n";
+    cout << "b sp (" << b_sparsity_pattern.n_rows() << ", " << b_sparsity_pattern.n_cols() << ")\n";
+    cout << "b transpose sp (" << b_sparsity_pattern_transpose.n_rows() << ", " << b_sparsity_pattern_transpose.n_cols() << ")\n";
     solver_sp.block(0, 0).copy_from(energy_sparsity_pattern);
-    solver_sp.block(0, 1).copy_from(b_sparsity_pattern_transpose);
-    solver_sp.block(1, 0).copy_from(b_sparsity_pattern);
+    cout << "block 00 sp (" << solver_sp.block(0, 0).n_rows() << ", " << solver_sp.block(0, 0).n_cols() << ")\n";
+    cout << "solver sp (" << solver_sp.n_rows() << ", " << solver_sp.n_cols() <<")\n";
+    cout << "solver sp [" << solver_sp.n_block_rows() << ", " << solver_sp.n_block_cols() <<"]\n";
+    solver_sp.block(0, 1).copy_from(b_sparsity_pattern);
+    solver_sp.block(1, 0).copy_from(b_sparsity_pattern_transpose);
+    SparsityPattern zero_sp(b_matrix.n(), b_matrix.n(), 0);
+    solver_sp.block(1, 1).copy_from(zero_sp);
     solver_sp.collect_sizes();
+    exit(1);
 
     BlockSparseMatrix<double> solver_matrix(solver_sp);
     solver_matrix.block(0, 0) = a_matrix;
