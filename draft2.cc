@@ -33,6 +33,22 @@ namespace Draft2
 {
   using namespace dealii;
 
+  // @sect3{Equation data}
+
+  // This class implement the right-hand side $f=\Delta^2 u$ corresponding to
+  // the manufactured solution $u$ defined in the introduction.
+  template <int dim>
+  class RightHandSide : public Function<dim>
+  {
+  public:
+    RightHandSide()
+      : Function<dim>()
+    {}
+
+    virtual double value(const Point<dim>  &p,
+                         const unsigned int component = 0) const override;
+  };
+
   template <int dim>
   class BiLaplacianLDGLift
   {
@@ -46,19 +62,20 @@ namespace Draft2
                        const double       penalty_jump_grad,
                        const double       penalty_jump_val);
 
-    void run();
+    void run(int test_num);
 
   private:
     void make_grid();
+    void make_grid_test1();
     void setup_system();
     void assemble_system();
     void assemble_matrix();
     void assemble_bmatrix();
-    void assemble_rhs();
+    void assemble_rhs(const RightHandSide<dim> right_hand_side);
 
-    void solve();
+    void solve(int test_num);
 
-    void compute_errors();
+    void compute_errors(int test_num);
     void output_results() const;
 
     void assemble_local_matrix(const FEValues<dim> &fe_values_lift,
@@ -111,26 +128,6 @@ namespace Draft2
     const double penalty_jump_val;
   };
 
-
-
-  // @sect3{Equation data}
-
-  // This class implement the right-hand side $f=\Delta^2 u$ corresponding to
-  // the manufactured solution $u$ defined in the introduction.
-  template <int dim>
-  class RightHandSide : public Function<dim>
-  {
-  public:
-    RightHandSide()
-      : Function<dim>()
-    {}
-
-    virtual double value(const Point<dim>  &p,
-                         const unsigned int component = 0) const override;
-  };
-
-
-
   template <int dim>
   double RightHandSide<dim>::value(const Point<dim> &p,
                                    const unsigned int /*component*/) const
@@ -168,7 +165,31 @@ namespace Draft2
     return return_value;
   }
 
+  template <int dim>
+  class RightHandSideTest1 : public RightHandSide<dim>
+  {
+  public:
+    RightHandSideTest1()
+      : RightHandSide<dim>()
+    {}
 
+    virtual double value(const Point<dim>  &p,
+                         const unsigned int component = 0) const override;
+  };
+
+  template <int dim>
+  double RightHandSideTest1<dim>::value(const Point<dim> &p,
+                                   const unsigned int /*component*/) const
+  {
+    double return_value = 0.0;
+    if (dim == 2)
+      {
+        return_value = 0.0 * p[1];
+      }
+    else
+      DEAL_II_NOT_IMPLEMENTED();
+    return return_value;
+  }
 
   // This class implement the manufactured (exact) solution $u$. To compute the
   // errors, we need the value of $u$ as well as its gradient and its Hessian.
@@ -192,8 +213,6 @@ namespace Draft2
             const unsigned int component = 0) const override;
   };
 
-
-
   template <int dim>
   double ExactSolution<dim>::value(const Point<dim> &p,
                                    const unsigned int /*component*/) const
@@ -215,8 +234,6 @@ namespace Draft2
 
     return return_value;
   }
-
-
 
   template <int dim>
   Tensor<1, dim>
@@ -256,8 +273,6 @@ namespace Draft2
 
     return return_gradient;
   }
-
-
 
   template <int dim>
   SymmetricTensor<2, dim>
@@ -314,12 +329,85 @@ namespace Draft2
     return return_hessian;
   }
 
+  template <int dim>
+  class ExactSolutionTest1 : public ExactSolution<dim>
+  {
+  public:
+    ExactSolutionTest1()
+      : ExactSolution<dim>()
+    {}
+
+    virtual double value(const Point<dim>  &p,
+                         const unsigned int component = 0) const override;
+
+    virtual Tensor<1, dim>
+    gradient(const Point<dim>  &p,
+             const unsigned int component = 0) const override;
+
+    virtual SymmetricTensor<2, dim>
+    hessian(const Point<dim>  &p,
+            const unsigned int component = 0) const override;
+  };
+
+  template <int dim>
+  double ExactSolutionTest1<dim>::value(const Point<dim> &p,
+                                   const unsigned int /*component*/) const
+  {
+    double return_value = 0.0;
+
+    if (dim == 2)
+      {
+        return_value = 0.0 * p[0];
+      }
+    else
+      DEAL_II_NOT_IMPLEMENTED();
+
+    return return_value;
+  }
+
+  template <int dim>
+  Tensor<1, dim>
+  ExactSolutionTest1<dim>::gradient(const Point<dim> &p,
+                               const unsigned int /*component*/) const
+  {
+    Tensor<1, dim> return_gradient;
+
+    if (dim == 2)
+      {
+        return_gradient[0] = 0.0 * p[0];
+        return_gradient[1] = 0.0 * p[1];
+      }
+    else
+      DEAL_II_NOT_IMPLEMENTED();
+
+    return return_gradient;
+  }
+
+  template <int dim>
+  SymmetricTensor<2, dim>
+  ExactSolutionTest1<dim>::hessian(const Point<dim> &p,
+                              const unsigned int /*component*/) const
+  {
+    SymmetricTensor<2, dim> return_hessian;
+
+    if (dim == 2)
+      {
+        return_hessian[0][0] = 0.0 * p[0];
+        return_hessian[0][1] = 0.0;
+        return_hessian[1][1] = 0.0;
+      }
+    else
+      DEAL_II_NOT_IMPLEMENTED();
+
+    return return_hessian;
+  }
+
   template <int structdim, int dim, int spacedim, bool level_dof_access>
   class HandlerChangeDoFAccessor : public DoFAccessor<structdim, dim, spacedim, level_dof_access>
   {
   public:
-    HandlerChangeDoFAccessor() 
-      : DoFAccessor<structdim, dim, spacedim, level_dof_access>()
+    HandlerChangeDoFAccessor(const DoFAccessor<structdim, dim, spacedim, level_dof_access> & other) 
+      : DoFAccessor<structdim, dim, spacedim, level_dof_access>(other)
     {}
     void change_dof_handler(DoFHandler<dim, spacedim> *dh);
   };
@@ -385,6 +473,16 @@ namespace Draft2
               << std::endl;
   }
 
+  template <int dim>
+  void BiLaplacianLDGLift<dim>::make_grid_test1()
+  {
+    std::cout << "Building the mesh for test1" << std::endl;
+
+    GridGenerator::hyper_cube(triangulation, 0.0, 1.0);
+
+    std::cout << "Number of active cells: " << triangulation.n_active_cells()
+              << std::endl;
+  }
 
 
   // @sect4{BiLaplacianLDGLift::setup_system}
@@ -420,8 +518,8 @@ namespace Draft2
       {
         std::vector<types::global_dof_index> dofs(dofs_per_cell);
         std::vector<types::global_dof_index> metric_dofs(metric_dofs_per_cell);
-        HandlerChangeDoFAccessor<dim, dim, dim, false> changeable_cell;
-        changeable_cell.copy_from(*cell);
+        HandlerChangeDoFAccessor<dim, dim, dim, false> changeable_cell(*cell);
+        // changeable_cell.copy_from(*cell);
         changeable_cell.get_dof_indices(dofs);
         changeable_cell.change_dof_handler(&metric_dof_handler);
         changeable_cell.get_dof_indices(metric_dofs);
@@ -489,7 +587,6 @@ namespace Draft2
     std::cout << "Assembling the system............." << std::endl;
 
     assemble_matrix();
-    assemble_rhs();
 
     std::cout << "Done. " << std::endl;
   }
@@ -514,7 +611,7 @@ namespace Draft2
     const unsigned int n_q_points      = quad.size();
     const unsigned int n_q_points_face = quad_face.size();
 
-    FEValues<dim> fe_values(fe, quad, update_hessians | update_JxW_values);
+    FEValues<dim> fe_values(fe, quad, update_values | update_hessians | update_JxW_values);
 
     FEFaceValues<dim> fe_face(
       fe, quad_face, update_values | update_gradients | update_normal_vectors);
@@ -947,7 +1044,7 @@ namespace Draft2
     // both quad for each fe spaces should have same amount of quad points
     const unsigned int n_q_points = quad.size();
 
-    FEValues<dim> fe_values(fe, quad, update_hessians | update_JxW_values);
+    FEValues<dim> fe_values(fe, quad, update_values | update_hessians | update_JxW_values);
 
     FEValues<dim> fe_values_metric(
       fe_metriccon, metric_quad, update_values | update_gradients | update_normal_vectors);
@@ -961,8 +1058,8 @@ namespace Draft2
     FullMatrix<double> stiffness_matrix(n_dofs, n_metric_dofs); 
     for (const auto &cell : dof_handler.active_cell_iterators())
     {
-      HandlerChangeDoFAccessor<dim, dim, dim, false> changeable_cell;
-      changeable_cell.copy_from(*cell);
+      HandlerChangeDoFAccessor<dim, dim, dim, false> changeable_cell(*cell);
+      // changeable_cell.copy_from(*cell);
       changeable_cell.get_dof_indices(local_dof_indices);
       changeable_cell.change_dof_handler(&metric_dof_handler);
       changeable_cell.get_dof_indices(local_dof_indices_metric);
@@ -1016,7 +1113,7 @@ namespace Draft2
   // form using the Nitsche approach, it only involves the contribution of the
   // forcing term $\int_{\Omega}fv_h$.
   template <int dim>
-  void BiLaplacianLDGLift<dim>::assemble_rhs()
+  void BiLaplacianLDGLift<dim>::assemble_rhs(const RightHandSide<dim> right_hand_side)
   {
     rhs = 0;
 
@@ -1026,8 +1123,6 @@ namespace Draft2
 
     const unsigned int n_dofs     = fe_values.dofs_per_cell;
     const unsigned int n_quad_pts = quad.size();
-
-    const RightHandSide<dim> right_hand_side;
 
     Vector<double>                       local_rhs(n_dofs);
     std::vector<types::global_dof_index> local_dof_indices(n_dofs);
@@ -1070,17 +1165,17 @@ namespace Draft2
   // as well use an iterative method, for instance the conjugate
   // gradient method as in step-3.
   template <int dim>
-  void BiLaplacianLDGLift<dim>::solve()
+  void BiLaplacianLDGLift<dim>::solve(int test_num)
   {
     double tol = 0.1 * tau;
 
     BlockSparsityPattern solver_sp(2, 2);
-    solver_sp.add(0,0);
-    solver_sp.add(0,1);
-    solver_sp.add(1,0);
-    solver_sp.block(0, 0) = energy_sparsity_pattern;
-    solver_sp.block(0, 1) = b_sparsity_pattern_transpose;
-    solver_sp.block(1, 0) = b_sparsity_pattern;
+    // solver_sp.add(0,0);
+    // solver_sp.add(0,1);
+    // solver_sp.add(1,0);
+    solver_sp.block(0, 0).copy_from(energy_sparsity_pattern);
+    solver_sp.block(0, 1).copy_from(b_sparsity_pattern_transpose);
+    solver_sp.block(1, 0).copy_from(b_sparsity_pattern);
     solver_sp.collect_sizes();
 
     BlockSparseMatrix<double> solver_matrix(solver_sp);
@@ -1100,11 +1195,18 @@ namespace Draft2
     double old_solution_energy = 0;
     update = 0;
 
+    RightHandSide<dim> right_hand_side;
+    if (test_num == 1)
+    {
+      RightHandSideTest1<dim> right_hand_side_test;
+      right_hand_side = right_hand_side_test;
+    }
+
     do 
     {
       old_solution += update;
       old_solution_energy = solution_energy;
-      assemble_rhs();
+      assemble_rhs(right_hand_side);
       assemble_bmatrix();
       solver_matrix.block(0, 1) = b_matrix_transpose;
       solver_matrix.block(1, 0) = b_matrix;
@@ -1126,7 +1228,7 @@ namespace Draft2
   // the approximate solution. See the introduction for the definition
   // of the norms.
   template <int dim>
-  void BiLaplacianLDGLift<dim>::compute_errors()
+  void BiLaplacianLDGLift<dim>::compute_errors(int test_num)
   {
     double error_H2 = 0;
     double error_H1 = 0;
@@ -1153,7 +1255,14 @@ namespace Draft2
     const unsigned int n_q_points_face = quad_face.size();
 
     // We introduce some variables for the exact solution...
-    const ExactSolution<dim> u_exact;
+
+    ExactSolution<dim> u_exact;
+    
+    if (test_num == 1)
+    {
+      ExactSolutionTest1<dim> u_exact_test1;
+      u_exact = u_exact_test1;
+    }
 
     // ...and for the approximate solution:
     std::vector<double>         solution_values_cell(n_q_points);
@@ -1662,33 +1771,34 @@ namespace Draft2
 
   // @sect4{BiLaplacianLDGLift::run}
   template <int dim>
-  void BiLaplacianLDGLift<dim>::run()
+  void BiLaplacianLDGLift<dim>::run(int test_num)
   {
-    make_grid();
+    if (test_num == 1)
+    {
+      make_grid_test1();
+    }
+    else
+    {
+      make_grid();
+    }
 
     setup_system();
     assemble_system();
+    
+    solve(test_num);
 
-    solve();
-
-    compute_errors();
+    compute_errors(test_num);
     output_results();
   }
 
 } // namespace Step82
 
-
-
-// @sect3{The <code>main</code> function}
-
-// This is the <code>main</code> function. We define here the number of mesh
-// refinements, the polynomial degree for the two finite element spaces
-// (for the solution and the two liftings) and the two penalty coefficients.
-// We can also change the dimension to run the code in 3d.
-int main()
+// test simple square mesh with zero function
+int test1()
 {
   try
-    {
+  {
+    
       const unsigned int n_ref = 3; // number of mesh refinements
 
       const unsigned int degree =
@@ -1713,33 +1823,45 @@ int main()
                                             penalty_grad,
                                             penalty_val);
 
-      problem.run();
-    }
+      problem.run(1);
+  }
   catch (std::exception &exc)
-    {
-      std::cerr << std::endl
-                << std::endl
-                << "----------------------------------------------------"
-                << std::endl;
-      std::cerr << "Exception on processing: " << std::endl
-                << exc.what() << std::endl
-                << "Aborting!" << std::endl
-                << "----------------------------------------------------"
-                << std::endl;
-      return 1;
-    }
+  {
+    std::cerr << std::endl
+              << std::endl
+              << "----------------------------------------------------"
+              << std::endl;
+    std::cerr << "Exception on processing: " << std::endl
+              << exc.what() << std::endl
+              << "Aborting!" << std::endl
+              << "----------------------------------------------------"
+              << std::endl;
+    return 1;
+  }
   catch (...)
-    {
-      std::cerr << std::endl
-                << std::endl
-                << "----------------------------------------------------"
-                << std::endl;
-      std::cerr << "Unknown exception!" << std::endl
-                << "Aborting!" << std::endl
-                << "----------------------------------------------------"
-                << std::endl;
-      return 1;
-    }
+  {
+    std::cerr << std::endl
+              << std::endl
+              << "----------------------------------------------------"
+              << std::endl;
+    std::cerr << "Unknown exception!" << std::endl
+              << "Aborting!" << std::endl
+              << "----------------------------------------------------"
+              << std::endl;
+    return 1;
+  }
 
+  return 0;
+}
+
+// @sect3{The <code>main</code> function}
+
+// This is the <code>main</code> function. We define here the number of mesh
+// refinements, the polynomial degree for the two finite element spaces
+// (for the solution and the two liftings) and the two penalty coefficients.
+// We can also change the dimension to run the code in 3d.
+int main()
+{
+  test1();
   return 0;
 }
