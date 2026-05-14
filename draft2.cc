@@ -104,10 +104,10 @@ namespace Draft2
     // tutorial programs.
     const FESystem<dim> fe_lift;
 
-    SparsityPattern      energy_sparsity_pattern;
-    SparsityPattern      control_sparsity_pattern;
-    SparsityPattern      b_sparsity_pattern;
-    SparsityPattern      b_sparsity_pattern_transpose;
+    SparsityPattern      energy_sp;
+    SparsityPattern      control_sp;
+    SparsityPattern      b_sp;
+    SparsityPattern      b_sp_transpose;
     // BlockMatrix<double> solver matrix;
     SparseMatrix<double> energy_matrix;
     SparseMatrix<double> control_matrix;
@@ -492,7 +492,7 @@ namespace Draft2
   // pattern, the size of the matrix $A$, and the size of the solution and
   // right-hand side vectors
   // $\boldsymbol{U}$ and $\boldsymbol{F}$. For the sparsity pattern, we cannot
-  // directly use the function <code>DoFTools::make_flux_sparsity_pattern</code>
+  // directly use the function <code>DoFTools::make_flux_sp</code>
   // (as we would do for instance for the SIPG method) because we need to take
   // into account the interactions of a neighboring cell with another
   // neighboring cell as described in the introduction. The extended sparsity
@@ -556,17 +556,17 @@ namespace Draft2
             }
       }
 
-    energy_sparsity_pattern.copy_from(energy_dsp);
-    control_sparsity_pattern.copy_from(control_dsp);
-    b_sparsity_pattern.copy_from(b_dsp);
-    b_sparsity_pattern_transpose.copy_from(b_dsp_transpose);
+    energy_sp.copy_from(energy_dsp);
+    control_sp.copy_from(control_dsp);
+    b_sp.copy_from(b_dsp);
+    b_sp_transpose.copy_from(b_dsp_transpose);
 
-    energy_matrix.reinit(energy_sparsity_pattern);
-    control_matrix.reinit(control_sparsity_pattern);
-    a_matrix.reinit(energy_sparsity_pattern);
+    energy_matrix.reinit(energy_sp);
+    control_matrix.reinit(control_sp);
+    a_matrix.reinit(energy_sp);
 
-    b_matrix.reinit(b_sparsity_pattern);
-    b_matrix_transpose.reinit(b_sparsity_pattern_transpose);
+    b_matrix.reinit(b_sp);
+    b_matrix_transpose.reinit(b_sp_transpose);
     rhs.reinit(dof_handler.n_dofs());
     solution.reinit(dof_handler.n_dofs());
 
@@ -574,7 +574,7 @@ namespace Draft2
     // a scalable vector graphic. You can visualize it by loading this
     // file in most web browsers:
     // std::ofstream out("sparsity-pattern.svg");
-    // sparsity_pattern.print_svg(out);
+    // sp.print_svg(out);
   }
 
 
@@ -1046,12 +1046,13 @@ namespace Draft2
     // both quad for each fe spaces should have same amount of quad points
     const unsigned int n_q_points = quad.size();
 
-    FEValues<dim> fe_values(fe, quad, update_values | update_hessians | update_JxW_values);
+    FEValues<dim> fe_values(fe, quad, update_values | update_gradients | update_hessians | update_JxW_values);
 
     FEValues<dim> fe_values_metric(
-      fe_metriccon, metric_quad, update_values | update_gradients | update_normal_vectors);
+      fe_metriccon, metric_quad, update_values | update_gradients | update_hessians | update_JxW_values);
 
     const unsigned int n_dofs = fe_values.dofs_per_cell;
+    // n_metric_dofs = 3
     const unsigned int n_metric_dofs = fe_values_metric.dofs_per_cell;
 
     std::vector<types::global_dof_index> local_dof_indices(n_dofs);
@@ -1061,7 +1062,6 @@ namespace Draft2
     for (const auto &cell : dof_handler.active_cell_iterators())
     {
       HandlerChangeDoFAccessor<dim, dim, dim, false> changeable_cell(*cell);
-      // changeable_cell.copy_from(*cell);
       changeable_cell.get_dof_indices(local_dof_indices);
       changeable_cell.change_dof_handler(&metric_dof_handler);
       changeable_cell.get_dof_indices(local_dof_indices_metric);
@@ -1085,15 +1085,19 @@ namespace Draft2
           for (unsigned int i = 0; i < n_dofs; ++i)
             {
             Tensor <1, dim> basis = fe_values.shape_grad(i, q);
-            for (unsigned int j = 0; j < n_metric_dofs; ++j)
-              {
-                Tensor <dim, dim> metric_basis = Tensor<dim, dim>({{fe_values_metric.shape_value(0, q), fe_values_metric.shape_value(1, q)}, 
-                                                                          {fe_values_metric.shape_value(1, q), fe_values_metric.shape_value(2,q)}});
-
-                stiffness_matrix(i, j) += scalar_product(metric_basis,
-                              outer_product(cell_solution, basis) + outer_product(basis, cell_solution)) * dx;
+            Tensor <dim, dim> metric_basis0 = Tensor<dim, dim>({{fe_values_metric.shape_value(0, 0), 0}, 
+                                                                {0, 0}});
+            Tensor <dim, dim> metric_basis1 = Tensor<dim, dim>({{0, fe_values_metric.shape_value(1, 0)}, 
+                                                                {fe_values_metric.shape_value(1, 0), 0}});
+            Tensor <dim, dim> metric_basis2 = Tensor<dim, dim>({{0, 0}, 
+                                                                {0, fe_values_metric.shape_value(2,0)}});
+            stiffness_matrix(i, 0) += scalar_product(metric_basis0, 
+                          outer_product(cell_solution, basis) + outer_product(basis, cell_solution)) * dx;
+            stiffness_matrix(i, 1) += scalar_product(metric_basis1, 
+                          outer_product(cell_solution, basis) + outer_product(basis, cell_solution)) * dx;
+            stiffness_matrix(i, 2) += scalar_product(metric_basis2, 
+                          outer_product(cell_solution, basis) + outer_product(basis, cell_solution)) * dx;
               }
-            }
         }
 
       for (unsigned int i = 0; i < n_dofs; ++i)
@@ -1153,7 +1157,7 @@ namespace Draft2
           rhs(local_dof_indices[i]) += local_rhs(i);
       }
       // -= A_tildeYn
-      Vector<double> temp;
+      Vector<double> temp(energy_matrix.n());
       energy_matrix.vmult(temp, solution);
       rhs -= temp;
   }
@@ -1162,14 +1166,12 @@ namespace Draft2
   template <int dim>
   void BiLaplacianLDGLift<dim>::unsafe_copy(SparsityPattern &sp, SparseMatrix<double> &to, SparseMatrix<double> &from)
   {
-    cout << "start copy";
     for (auto it = sp.begin(); it != sp.end(); ++it)
     {
       int i = it->row();
       int j = it->column();
       to(i, j) = from(i, j);
     }
-    cout << "finish copy";
   }
 
 
@@ -1185,28 +1187,15 @@ namespace Draft2
     double tol = 0.1 * tau;
 
     BlockSparsityPattern solver_sp(2, 2);
-    solver_sp.block(0, 0).copy_from(energy_sparsity_pattern);
-    solver_sp.block(0, 1).copy_from(b_sparsity_pattern);
-    solver_sp.block(1, 0).copy_from(b_sparsity_pattern_transpose);
+    solver_sp.block(0, 0).copy_from(energy_sp);
+    solver_sp.block(0, 1).copy_from(b_sp);
+    solver_sp.block(1, 0).copy_from(b_sp_transpose);
     SparsityPattern zero_sp(b_matrix.n(), b_matrix.n(), 0);
     solver_sp.block(1, 1).copy_from(zero_sp);
     solver_sp.collect_sizes();
 
     BlockSparseMatrix<double> solver_matrix(solver_sp);
-    // cout << "blocks [" << solver_matrix.n_block_rows() << solver_matrix.n_block_cols();
-    // cout << "rows [" << solver_matrix.m() << solver_matrix.n();
-    cout << " 0 0 (" << solver_matrix.block(0,0).m() << " " << solver_matrix.block(0,0).n() << ")\n";
-    // cout << "start copy";
-    // for (auto it = energy_sparsity_pattern.begin(); it != energy_sparsity_pattern.end(); ++it)
-    // {
-    //   int i = it->row();
-    //   int j = it->column();
-    //   solver_matrix.block(0, 0)(i, j) = a_matrix(i, j);
-    // }
-    // cout << "finish copy";
-    // exit(0);
-    unsafe_copy(energy_sparsity_pattern, solver_matrix.block(0, 0), a_matrix);
-    exit(0);
+    unsafe_copy(energy_sp, solver_matrix.block(0, 0), a_matrix);
     
     std::vector<unsigned int> block_vector_size = {dof_handler.n_dofs(), metric_dof_handler.n_dofs()};
     BlockVector<double> blocked_solution;
@@ -1235,10 +1224,9 @@ namespace Draft2
       old_solution_energy = solution_energy;
       assemble_rhs(right_hand_side);
       assemble_bmatrix();
-      solver_matrix.block(0, 1).copy_from(b_matrix);
-      solver_matrix.block(1, 0).copy_from(b_matrix_transpose);
+      unsafe_copy(b_sp, solver_matrix.block(0, 1), b_matrix);
+      unsafe_copy(b_sp_transpose, solver_matrix.block(1, 0), b_matrix_transpose);
       blocked_rhs.block(0) = rhs;
-      exit(0);
       solver_matrix.vmult(blocked_solution, blocked_rhs);
       update = blocked_solution.block(0);
       solution += update;
@@ -1301,7 +1289,7 @@ namespace Draft2
     std::vector<double>         solution_values_neigh(n_q_points_face);
     std::vector<Tensor<1, dim>> solution_gradients(n_q_points_face);
     std::vector<Tensor<1, dim>> solution_gradients_neigh(n_q_points_face);
-
+    exit(0);
     for (const auto &cell : dof_handler.active_cell_iterators())
       {
         fe_values.reinit(cell);
@@ -1314,11 +1302,12 @@ namespace Draft2
         for (unsigned int q = 0; q < n_q_points; ++q)
           {
             const double dx = fe_values.JxW(q);
-
+            exit(0);
             error_H2 += (u_exact.hessian(fe_values.quadrature_point(q)) -
                          solution_hessians_cell[q])
                           .norm_square() *
                         dx;
+            exit(0);
             error_H1 += (u_exact.gradient(fe_values.quadrature_point(q)) -
                          solution_gradients_cell[q])
                           .norm_square() *
@@ -1328,6 +1317,7 @@ namespace Draft2
                           solution_values_cell[q]) *
                         dx;
           } // for quadrature points
+          exit(0);
 
         // We then add the face contributions.
         for (unsigned int face_no = 0; face_no < cell->n_faces(); ++face_no)
