@@ -698,7 +698,7 @@ namespace Draft2
                 // added H2 norm to control matrix
                 stiffness_matrix_control(i, j) += (1 / tau) * (fe_values.shape_value(i, q) * fe_values.shape_value(j, q) +
                                               scalar_product(fe_values.shape_grad(i, q), fe_values.shape_grad(j, q)) +
-                                              scalar_product(fe_values.shape_hessian(i, q), fe_values.shape_hessian(j, q))) * dx;                              
+                                              scalar_product(fe_values.shape_hessian(i, q), fe_values.shape_hessian(j, q))) * dx;                       
               }
         }
 
@@ -1217,9 +1217,10 @@ namespace Draft2
       RightHandSideTest1<dim> right_hand_side_test;
       right_hand_side = right_hand_side_test;
     }
-
+    int loop_count = 0;
     do 
     {
+      std::cout << "energy: " << solution_energy << "\n";
       old_solution += update;
       old_solution_energy = solution_energy;
       assemble_rhs(right_hand_side);
@@ -1229,10 +1230,13 @@ namespace Draft2
       blocked_rhs.block(0) = rhs;
       solver_matrix.vmult(blocked_solution, blocked_rhs);
       update = blocked_solution.block(0);
+      std::cout << "update: " << update << "\n";
       solution += update;
+      std::cout << "solution: " << solution << "\n";
       energy_matrix.vmult(temp, solution);
       solution_energy = solution * temp;
-    } while (tol > abs(solution_energy - old_solution_energy));
+      loop_count += 1;
+    } while (tol < abs(solution_energy - old_solution_energy));
   }
 
 
@@ -1289,7 +1293,6 @@ namespace Draft2
     std::vector<double>         solution_values_neigh(n_q_points_face);
     std::vector<Tensor<1, dim>> solution_gradients(n_q_points_face);
     std::vector<Tensor<1, dim>> solution_gradients_neigh(n_q_points_face);
-    exit(0);
     for (const auto &cell : dof_handler.active_cell_iterators())
       {
         fe_values.reinit(cell);
@@ -1297,17 +1300,18 @@ namespace Draft2
         fe_values.get_function_values(solution, solution_values_cell);
         fe_values.get_function_gradients(solution, solution_gradients_cell);
         fe_values.get_function_hessians(solution, solution_hessians_cell);
-
         // We first add the <i>bulk</i> terms.
         for (unsigned int q = 0; q < n_q_points; ++q)
           {
             const double dx = fe_values.JxW(q);
             exit(0);
-            error_H2 += (u_exact.hessian(fe_values.quadrature_point(q)) -
-                         solution_hessians_cell[q])
-                          .norm_square() *
-                        dx;
+            std::cout << (u_exact.hessian(fe_values.quadrature_point(q)) -
+                         solution_hessians_cell[q]).norm_square() ;
             exit(0);
+            error_H2 += (u_exact.hessian(fe_values.quadrature_point(q)) -
+                         solution_hessians_cell[q]).norm_square() *
+                        dx;
+                        exit(0);
             error_H1 += (u_exact.gradient(fe_values.quadrature_point(q)) -
                          solution_gradients_cell[q])
                           .norm_square() *
@@ -1805,7 +1809,8 @@ namespace Draft2
     
     solve(test_num);
 
-    compute_errors(test_num);
+    // compute_errors(test_num);
+    std::cout << solution;
     output_results();
   }
 
