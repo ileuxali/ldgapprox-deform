@@ -1196,7 +1196,21 @@ namespace Draft2
 
     BlockSparseMatrix<double> solver_matrix(solver_sp);
     unsafe_copy(energy_sp, solver_matrix.block(0, 0), a_matrix);
-    
+
+    const std::map<types::global_dof_index, Point<2>> dof_location_map =
+      DoFTools::map_dofs_to_support_points(MappingQ1<2>(), dof_handler);
+
+    for (const auto& [dof, location] : dof_location_map) {
+        if (dof >= dof_handler.n_dofs() / 3)
+        {
+          break;
+        }
+        solution[3*dof] = location[0];
+        solution[3*dof+1] = location[1];
+        solution[3*dof+2] = 0;
+    }
+    std::cout << "initial solution is " << solution << std::endl;
+    // exit(0);
     std::vector<unsigned int> block_vector_size = {dof_handler.n_dofs(), metric_dof_handler.n_dofs()};
     BlockVector<double> blocked_solution;
     BlockVector<double> blocked_rhs;
@@ -1236,6 +1250,7 @@ namespace Draft2
       energy_matrix.vmult(temp, solution);
       solution_energy = solution * temp;
       loop_count += 1;
+      exit(0);
     } while (tol < abs(solution_energy - old_solution_energy));
   }
 
